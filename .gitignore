@@ -21,5 +21,17 @@ venv/
 .idea/
 .vscode/
 
+# OS / editor temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.log
+
+# Local database / coverage artifacts
+*.sqlite3
+.coverage
+htmlcov/
+
 # Local tooling / generated helper assets
 .claude/

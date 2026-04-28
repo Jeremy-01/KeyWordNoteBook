@@ -1,0 +1,12 @@
+{
+    "ARGON2_PARAMS": {
+        "verify_hash": "<程序首次初始化后自动生成>",
+        "hash_len": 64,
+        "encryption_salt": "<程序首次初始化后自动生成>",
+        "hmac_salt": "<程序首次初始化后自动生成>",
+        "hmac_key_encrypted": "<程序首次初始化后自动生成>",
+        "integrity_check": "<程序首次初始化后自动生成>"
+    },
+    "FrequentlyKeys": {},
+    "ItemList": {}
+}
