@@ -1,0 +1,25 @@
+# Sensitive local data
+my_key.json
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE/editor files
+.idea/
+.vscode/
+
+# Local tooling / generated helper assets
+.claude/
