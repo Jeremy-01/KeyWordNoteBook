@@ -15,7 +15,7 @@
 实现文件管理，词条加密、存储功能
 提供增、删、改、查的API函数
 """
-__version__ = "0.0.2.0"
+__version__ = "0.0.2.1"
 
 import base64
 import hashlib
@@ -56,6 +56,7 @@ def is_base64(s: str) -> bool:
 class Argon2Params(dict):
     """ARGON2算法参数"""
     keycode = {
+        "kdf_version": lambda x: isinstance(x, int) and x >= 1,                     # KDF版本
         "verify_hash": lambda x:isinstance(x,str) and x.startswith("$argon2id$"),   # 验证哈希数
         "hash_len": lambda x:isinstance(x,int) and x >= 64,                         # 哈希结果长度
         "encryption_salt": lambda x:isinstance(x,str) and is_base64(x),             # AES加密盐
@@ -120,6 +121,9 @@ class FrequentlyKey(dict):
 
 class PasswordNotebook:
     """密码本管理器"""
+    KDF_VERSION_LEGACY = 1
+    KDF_VERSION_CURRENT = 2
+
     def __init__(self, main_key: str, path: str = r"my_key.json"):
         """
         :param mainKey: 管理员主密钥
@@ -129,6 +133,7 @@ class PasswordNotebook:
         self.main_key = main_key
         self.book_data: dict = {}
         self.verify_hash = None
+        self.kdf_version = self.KDF_VERSION_CURRENT
         self.encryption_salt = None
         self.hmac_salt = None
         self.hmac_key = None
@@ -140,11 +145,19 @@ class PasswordNotebook:
         self._aes_key_cache: bytes | None = None
         self._fernet_cache: Fernet | None = None
 
-        self.password_hasher = PasswordHasher(
+        self.verify_hasher = PasswordHasher(
             type=Type.ID,
             memory_cost=131072,
             time_cost=6,
             parallelism=6,
+            hash_len=64)
+
+        # 会话内派生（用于AES/HMAC密钥派生）：较轻参数，降低高频操作耗时
+        self.session_hasher = PasswordHasher(
+            type=Type.ID,
+            memory_cost=65536,
+            time_cost=3,
+            parallelism=4,
             hash_len=64)
 
         self._init_or_load_file()
@@ -405,7 +418,7 @@ class PasswordNotebook:
     def _verify_password(self, user_password: str) -> bool:
         """验证输入密码是否与当前主密码哈希匹配。"""
         try:
-            self.password_hasher.verify(self.verify_hash, user_password)
+            self.verify_hasher.verify(self.verify_hash, user_password)
             return True
         except exceptions.VerifyMismatchError:
             return False
@@ -434,6 +447,7 @@ class PasswordNotebook:
         self._verify_login_password(params["verify_hash"])
         self._load_security_context(params)
         self._verify_file_integrity(params["integrity_check"])
+        self._migrate_kdf_if_needed()
         self._duplicate_index_ready = False
         self._duplicate_index_dirty = False
 
@@ -451,8 +465,13 @@ class PasswordNotebook:
 
     def _get_required_security_params(self) -> dict:
         """读取并验证安全配置字段是否完整。"""
-        params = self.book_data.get("ARGON2_PARAMS", {})
+        params = dict(self.book_data.get("ARGON2_PARAMS", {}))
+        if "kdf_version" not in params:
+            # 旧版本兼容：缺失时视为legacy版本
+            params["kdf_version"] = self.KDF_VERSION_LEGACY
+
         required_params = [
+            "kdf_version",
             "verify_hash",
             "hash_len",
             "encryption_salt",
@@ -476,7 +495,7 @@ class PasswordNotebook:
         """校验登录密码并初始化 verify_hash。"""
         self.verify_hash = verify_hash
         try:
-            self.password_hasher.verify(self.verify_hash, self.main_key)
+            self.verify_hasher.verify(self.verify_hash, self.main_key)
             logger.debug("主密码验证成功")
         except exceptions.VerifyMismatchError:
             raise InvalidPasswordError("输入的登录密码不正确")
@@ -487,11 +506,52 @@ class PasswordNotebook:
 
     def _load_security_context(self, params: dict):
         """从配置中加载解密与完整性校验所需的安全材料。"""
+        self.kdf_version = int(params["kdf_version"])
         self.encryption_salt = base64.b64decode(params["encryption_salt"])
         self.hmac_salt = base64.b64decode(params["hmac_salt"])
         self._aes_key_cache = None
         self._fernet_cache = None
         self.hmac_key = self._decrypt_hmac_key(params["hmac_key_encrypted"])
+
+    def _migrate_kdf_if_needed(self):
+        """将旧版本KDF数据迁移到当前版本，确保历史库可用。"""
+        if self.kdf_version >= self.KDF_VERSION_CURRENT:
+            return
+
+        logger.info("检测到旧KDF版本：v%s，开始迁移到v%s", self.kdf_version, self.KDF_VERSION_CURRENT)
+
+        item_password_plain: dict[str, str] = {}
+        for item_id, item in self.book_data.get("ItemList", {}).items():
+            encrypted_password = str(item.get("Password", ""))
+            if not encrypted_password:
+                continue
+            item_password_plain[str(item_id)] = self._decode_aes(encrypted_password)
+
+        frequent_password_plain: dict[str, str] = {}
+        for key_id, fk_item in self.book_data.get("FrequentlyKeys", {}).items():
+            encrypted_password = str(fk_item.get("Password", ""))
+            if not encrypted_password:
+                continue
+            frequent_password_plain[str(key_id)] = self._decode_aes(encrypted_password)
+
+        # 切换版本并失效缓存（后续派生使用新会话参数）
+        self.kdf_version = self.KDF_VERSION_CURRENT
+        self._aes_key_cache = None
+        self._fernet_cache = None
+
+        # 用新版本会话派生参数重加密业务数据
+        for item_id, plain_password in item_password_plain.items():
+            self.book_data["ItemList"][item_id]["Password"] = self._encode_aes(plain_password)
+
+        for key_id, plain_password in frequent_password_plain.items():
+            self.book_data["FrequentlyKeys"][key_id]["Password"] = self._encode_aes(plain_password)
+
+        hmac_key_text = base64.b64encode(self.hmac_key).decode("utf-8")
+        self.book_data["ARGON2_PARAMS"]["hmac_key_encrypted"] = self._encode_aes(hmac_key_text)
+        self.book_data["ARGON2_PARAMS"]["kdf_version"] = self.kdf_version
+
+        self._sync_to_file()
+        logger.info("KDF版本迁移完成，已重写密码本文件")
 
     def _decrypt_hmac_key(self, encrypted_hmac_key: str) -> bytes:
         """解密并恢复持久化存储的 HMAC 密钥。"""
@@ -510,7 +570,8 @@ class PasswordNotebook:
         用于文件不存在，或json文件格式错误时
         :return:
         """
-        self.verify_hash = self.password_hasher.hash(self.main_key)
+        self.kdf_version = self.KDF_VERSION_CURRENT
+        self.verify_hash = self.verify_hasher.hash(self.main_key)
         self.encryption_salt = secrets.token_bytes(16)
         self.hmac_salt = secrets.token_bytes(32)
         self._aes_key_cache = None
@@ -593,6 +654,7 @@ class PasswordNotebook:
         encrypted_hmac_key = self._encode_aes(hmac_key_text)
 
         argon2_params = Argon2Params()
+        argon2_params["kdf_version"] = self.kdf_version
         argon2_params["verify_hash"] = self.verify_hash
         argon2_params["hash_len"] = 64
         argon2_params["encryption_salt"] = encrypted_salt_b64
@@ -607,10 +669,17 @@ class PasswordNotebook:
         :param data: 要计算的文件dict
         :return:hmac值
         """
-        import copy
-        # 排除校验值本身
-        data_to_check = copy.deepcopy(data)
-        data_to_check["ARGON2_PARAMS"].pop("integrity_check", None)
+        # 排除校验值本身（避免深拷贝带来的额外耗时）
+        argon2_params = {
+            key: value
+            for key, value in data.get("ARGON2_PARAMS", {}).items()
+            if key != "integrity_check"
+        }
+        data_to_check = {
+            "ARGON2_PARAMS": argon2_params,
+            "ItemList": data.get("ItemList", {}),
+            "FrequentlyKeys": data.get("FrequentlyKeys", {}),
+        }
         # 序列化HMAC计算器
         data_str = json.dumps(data_to_check,
                               sort_keys=True,
@@ -696,7 +765,8 @@ class PasswordNotebook:
         if not salt:
             raise RuntimeError(f"{key_name}盐值未初始化")
         try:
-            hash_result = self.password_hasher.hash(self.main_key, salt=salt)
+            hasher = self._get_session_kdf_hasher()
+            hash_result = hasher.hash(self.main_key, salt=salt)
             hash_bytes = self._extract_argon2_hash_bytes(hash_result)
             key_bytes = hash_bytes[:key_length]
             if len(key_bytes) < key_length:
@@ -704,6 +774,12 @@ class PasswordNotebook:
             return key_bytes
         except Exception as e:
             raise RuntimeError(f"派生{key_name}失败: {str(e)}")
+
+    def _get_session_kdf_hasher(self) -> PasswordHasher:
+        """根据当前KDF版本选择会话派生参数。"""
+        if self.kdf_version <= self.KDF_VERSION_LEGACY:
+            return self.verify_hasher
+        return self.session_hasher
 
     def _extract_argon2_hash_bytes(self, hash_result: str) -> bytes:
         """从 Argon2 结果字符串中提取原始哈希字节。"""
