@@ -1,5 +1,6 @@
 {
     "ARGON2_PARAMS": {
+        "kdf_version": 2,
         "verify_hash": "<程序首次初始化后自动生成>",
         "hash_len": 64,
         "encryption_salt": "<程序首次初始化后自动生成>",
