@@ -18,6 +18,7 @@
 __version__ = "0.0.2.1"
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -49,8 +50,9 @@ class IntegrityError(PasswordNotebookError):
 def is_base64(s: str) -> bool:
     """验证字符串是否为Base64编码的字符串"""
     try:
-        return base64.b64encode(base64.b64decode(s)) == s.encode()
-    except:
+        decoded = base64.b64decode(s, validate=True)
+        return base64.b64encode(decoded) == s.encode()
+    except (binascii.Error, ValueError):
         return False
 
 class Argon2Params(dict):
@@ -641,8 +643,8 @@ class PasswordNotebook:
         self.hmac_key = self._derive_hmac_key()
 
         argon2_params = self._build_argon2_params()
-        item_dict: dict[str:KeyItem] = {}
-        frequently_key_dict: dict[str:FrequentlyKey] = {}
+        item_dict: dict[str, KeyItem] = {}
+        frequently_key_dict: dict[str, FrequentlyKey] = {}
 
         self.book_data = {
             "ARGON2_PARAMS": argon2_params,
