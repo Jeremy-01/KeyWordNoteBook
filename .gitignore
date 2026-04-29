@@ -1,0 +1,38 @@
+# Sensitive local data
+my_key.json
+.env
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE/editor files
+.idea/
+.vscode/
+
+# OS / editor temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.log
+
+# Local database / coverage artifacts
+*.sqlite3
+.coverage
+htmlcov/
+
+# Local tooling / generated helper assets
+.claude/
