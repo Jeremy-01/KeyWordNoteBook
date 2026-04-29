@@ -560,6 +560,12 @@ class MainWindow(QMainWindow):
     VERIFY_LOCK_BASE_SECONDS = 30
     VERIFY_LOCK_MAX_SECONDS = 120
     CLIPBOARD_CLEAR_MS = int(os.getenv("KEYWORD_NOTEBOOK_CLIPBOARD_CLEAR_MS", "20000"))
+    CLIPBOARD_FORCE_CLEAR = os.getenv("KEYWORD_NOTEBOOK_CLIPBOARD_FORCE_CLEAR", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
     def __init__(self, password_book: PasswordNotebook):
         super().__init__()
@@ -587,6 +593,12 @@ class MainWindow(QMainWindow):
         self.deferred_flush_timer = QTimer(self)
         self.deferred_flush_timer.setInterval(3000)
         self.deferred_flush_timer.timeout.connect(self._flush_deferred_sync)
+
+        self.clipboard_clear_timer = QTimer(self)
+        self.clipboard_clear_timer.setSingleShot(True)
+        self.clipboard_clear_timer.setInterval(self.CLIPBOARD_CLEAR_MS)
+        self.clipboard_clear_timer.timeout.connect(self._clear_clipboard_sensitive_content)
+        self._last_copied_sensitive_text: str | None = None
 
         self.item_table: QTableWidget | None = None
         self.status_bar: QStatusBar | None = None
@@ -953,7 +965,8 @@ class MainWindow(QMainWindow):
     def _load_initial_items(self):
         self._load_items_from_core()
         self._apply_filters()
-        self._start_duplicate_warmup()
+        # 稍后再做后台预热，避免挤占刚进入主界面的响应时间
+        QTimer.singleShot(1200, self._start_duplicate_warmup)
 
     def _load_items_from_core(self):
         self.all_items = self.password_book.list_items()
@@ -1505,15 +1518,27 @@ class MainWindow(QMainWindow):
 
     def _copy_to_clipboard_secure(self, text: str, label_name: str):
         QApplication.clipboard().setText(text)
+        self._last_copied_sensitive_text = text
+        if self.clipboard_clear_timer.isActive():
+            self.clipboard_clear_timer.stop()
+        self.clipboard_clear_timer.start()
         self.status_bar.showMessage(f"{label_name}已复制到剪贴板", 2500)
 
-        def clear_clipboard_if_unchanged():
-            clipboard = QApplication.clipboard()
-            if clipboard.text() == text:
-                clipboard.clear()
-                self.status_bar.showMessage("剪贴板中的敏感内容已自动清空", 2500)
+    def _clear_clipboard_sensitive_content(self):
+        expected_text = self._last_copied_sensitive_text
+        if not expected_text:
+            return
 
-        QTimer.singleShot(self.CLIPBOARD_CLEAR_MS, clear_clipboard_if_unchanged)
+        clipboard = QApplication.clipboard()
+        if self.CLIPBOARD_FORCE_CLEAR:
+            clipboard.clear()
+            self.status_bar.showMessage("剪贴板中的敏感内容已强制清空", 2500)
+        elif clipboard.text() == expected_text:
+            clipboard.clear()
+            self.status_bar.showMessage("剪贴板中的敏感内容已自动清空", 2500)
+        else:
+            self.status_bar.showMessage("剪贴板未清空（用户已改写）", 2500)
+        self._last_copied_sensitive_text = None
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1526,6 +1551,9 @@ class MainWindow(QMainWindow):
         if self._duplicate_warmup_thread and self._duplicate_warmup_thread.isRunning():
             self._duplicate_warmup_thread.quit()
             self._duplicate_warmup_thread.wait(1000)
+        if self.clipboard_clear_timer.isActive():
+            self.clipboard_clear_timer.stop()
+        self._clear_clipboard_sensitive_content()
         self._flush_deferred_sync()
         super().closeEvent(event)
 
