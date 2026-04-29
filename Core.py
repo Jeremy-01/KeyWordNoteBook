@@ -144,6 +144,7 @@ class PasswordNotebook:
         self._duplicate_index_dirty = False
         self._aes_key_cache: bytes | None = None
         self._fernet_cache: Fernet | None = None
+        self._pending_v2_strong_migration = False
 
         self.verify_hasher = PasswordHasher(
             type=Type.ID,
@@ -152,8 +153,16 @@ class PasswordNotebook:
             parallelism=6,
             hash_len=64)
 
-        # 会话内派生（用于AES/HMAC密钥派生）：较轻参数，降低高频操作耗时
+        # 会话内派生（v2）：与认证保持同强度，优先保证离线抗暴力能力
         self.session_hasher = PasswordHasher(
+            type=Type.ID,
+            memory_cost=131072,
+            time_cost=6,
+            parallelism=6,
+            hash_len=64)
+
+        # 兼容历史v2（旧轻参数）读取与迁移使用
+        self.legacy_session_hasher = PasswordHasher(
             type=Type.ID,
             memory_cost=65536,
             time_cost=3,
@@ -447,6 +456,7 @@ class PasswordNotebook:
         self._verify_login_password(params["verify_hash"])
         self._load_security_context(params)
         self._verify_file_integrity(params["integrity_check"])
+        self._migrate_v2_session_kdf_to_strong_if_needed()
         self._migrate_kdf_if_needed()
         self._duplicate_index_ready = False
         self._duplicate_index_dirty = False
@@ -555,8 +565,60 @@ class PasswordNotebook:
 
     def _decrypt_hmac_key(self, encrypted_hmac_key: str) -> bytes:
         """解密并恢复持久化存储的 HMAC 密钥。"""
-        hmac_key_text = self._decode_aes(encrypted_hmac_key)
+        try:
+            hmac_key_text = self._decode_aes(encrypted_hmac_key)
+            self._pending_v2_strong_migration = False
+        except RuntimeError:
+            if self.kdf_version != self.KDF_VERSION_CURRENT:
+                raise
+            logger.info("检测到v2旧会话派生参数数据，启用兼容读取")
+            hmac_key_text = self._decode_aes(encrypted_hmac_key, hasher=self.legacy_session_hasher)
+            self._pending_v2_strong_migration = True
         return base64.b64decode(hmac_key_text)
+
+    def _migrate_v2_session_kdf_to_strong_if_needed(self):
+        """将历史v2轻参数会话派生数据迁移为v2强参数。"""
+        if not self._pending_v2_strong_migration:
+            return
+
+        logger.info("检测到v2旧会话派生参数，开始迁移到v2强参数")
+
+        item_password_plain: dict[str, str] = {}
+        for item_id, item in self.book_data.get("ItemList", {}).items():
+            encrypted_password = str(item.get("Password", ""))
+            if not encrypted_password:
+                continue
+            item_password_plain[str(item_id)] = self._decode_aes(
+                encrypted_password,
+                hasher=self.legacy_session_hasher,
+            )
+
+        frequent_password_plain: dict[str, str] = {}
+        for key_id, fk_item in self.book_data.get("FrequentlyKeys", {}).items():
+            encrypted_password = str(fk_item.get("Password", ""))
+            if not encrypted_password:
+                continue
+            frequent_password_plain[str(key_id)] = self._decode_aes(
+                encrypted_password,
+                hasher=self.legacy_session_hasher,
+            )
+
+        # 失效缓存，后续使用v2强参数重加密
+        self._aes_key_cache = None
+        self._fernet_cache = None
+
+        for item_id, plain_password in item_password_plain.items():
+            self.book_data["ItemList"][item_id]["Password"] = self._encode_aes(plain_password)
+
+        for key_id, plain_password in frequent_password_plain.items():
+            self.book_data["FrequentlyKeys"][key_id]["Password"] = self._encode_aes(plain_password)
+
+        hmac_key_text = base64.b64encode(self.hmac_key).decode("utf-8")
+        self.book_data["ARGON2_PARAMS"]["hmac_key_encrypted"] = self._encode_aes(hmac_key_text)
+
+        self._pending_v2_strong_migration = False
+        self._sync_to_file()
+        logger.info("v2会话派生参数迁移完成，已重写密码本文件")
 
     def _verify_file_integrity(self, expected_hmac: str):
         """校验密码本文件完整性。"""
@@ -712,61 +774,73 @@ class PasswordNotebook:
         """使用hmac_salt派生HMAC密钥"""
         return self._derive_key(self.hmac_salt, 16, "HMAC密钥")
 
-    def _encode_aes(self, plaintext: str) -> str:
+    def _encode_aes(self, plaintext: str, hasher: PasswordHasher | None = None) -> str:
         """
         使用AES加密明文
         :param plaintext: 要加密的明文（b64 str ）
         :return: 加密后的字符串（Base64编码，包含IV）
         """
         try:
-            fernet = self._get_fernet()
+            fernet = self._get_fernet(hasher=hasher)
             encrypted_token = fernet.encrypt(plaintext.encode('utf-8'))
             return encrypted_token.decode('utf-8')
         except Exception as e:
             raise RuntimeError(f"AES加密失败: {str(e)}")
 
-    def _decode_aes(self, ciphertext: str) -> str:
+    def _decode_aes(self, ciphertext: str, hasher: PasswordHasher | None = None) -> str:
         """
         使用cryptography的Fernet解密
         :param ciphertext: 加密后的令牌字符串
         :return: 解密后的明文
         """
         try:
-            fernet = self._get_fernet()
+            fernet = self._get_fernet(hasher=hasher)
             decrypted_bytes = fernet.decrypt(ciphertext.encode('utf-8'))
             return decrypted_bytes.decode('utf-8')
         except Exception as e:
             raise RuntimeError(f"AES解密失败（可能被篡改或密钥错误）: {str(e)}")
 
-    def _get_fernet(self) -> Fernet:
+    def _get_fernet(self, hasher: PasswordHasher | None = None) -> Fernet:
         """
         生成Fernet加密器（封装了AES-GCM）
         """
-        if self._fernet_cache is not None:
+        if hasher is None and self._fernet_cache is not None:
             return self._fernet_cache
 
-        aes_key = self._derive_aes_key()
+        aes_key = self._derive_aes_key(hasher=hasher)
         fernet_key = base64.urlsafe_b64encode(aes_key)
         if len(fernet_key) != 44:
             raise ValueError(f"无效的Fernet密钥长度: {len(fernet_key)}")
-        self._fernet_cache = Fernet(fernet_key)
-        return self._fernet_cache
+        fernet = Fernet(fernet_key)
+        if hasher is None:
+            self._fernet_cache = fernet
+        return fernet
 
-    def _derive_aes_key(self) -> bytes:
+    def _derive_aes_key(self, hasher: PasswordHasher | None = None) -> bytes:
         """
         使用加密专用盐值派生AES密钥,应该随用随调，使用后立刻清理
         """
-        if self._aes_key_cache is None:
-            self._aes_key_cache = self._derive_key(self.encryption_salt, 32, "AES密钥")
-        return self._aes_key_cache
+        if hasher is None and self._aes_key_cache is not None:
+            return self._aes_key_cache
 
-    def _derive_key(self, salt: bytes, key_length: int, key_name: str) -> bytes:
+        aes_key = self._derive_key(self.encryption_salt, 32, "AES密钥", hasher=hasher)
+        if hasher is None:
+            self._aes_key_cache = aes_key
+        return aes_key
+
+    def _derive_key(
+        self,
+        salt: bytes,
+        key_length: int,
+        key_name: str,
+        hasher: PasswordHasher | None = None,
+    ) -> bytes:
         """使用给定盐值派生指定长度的密钥。"""
         if not salt:
             raise RuntimeError(f"{key_name}盐值未初始化")
         try:
-            hasher = self._get_session_kdf_hasher()
-            hash_result = hasher.hash(self.main_key, salt=salt)
+            active_hasher = hasher if hasher is not None else self._get_session_kdf_hasher()
+            hash_result = active_hasher.hash(self.main_key, salt=salt)
             hash_bytes = self._extract_argon2_hash_bytes(hash_result)
             key_bytes = hash_bytes[:key_length]
             if len(key_bytes) < key_length:
