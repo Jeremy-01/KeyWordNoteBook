@@ -61,22 +61,22 @@ def main():
             login_dialog.register_success()
             break
         except UnicodeError as e:
-            error_msg = ErrorDialog(msg=f"文件损坏：{str(e)}",button="退出")
+            error_msg = ErrorDialog(parent=login_dialog, msg=f"文件损坏：{str(e)}", button="退出")
             error_msg.exec_()
             sys.exit(1)
         except InvalidPasswordError as e:
             # 密码错误：提示用户并重新显示登录界面
             login_dialog.register_failed_attempt()
-            error_msg = ErrorDialog(msg=str(e),button="重新输入")
+            error_msg = ErrorDialog(parent=login_dialog, msg=str(e), button="重新输入")
             error_msg.exec_()
         except IntegrityError as e:
             # 文件完整性异常：明确告知并终止
-            error_msg = ErrorDialog(msg=f"文件安全异常：{str(e)}", button="退出")
+            error_msg = ErrorDialog(parent=login_dialog, msg=f"文件安全异常：{str(e)}", button="退出")
             error_msg.exec_()
             sys.exit(1)
         except Exception as e:
             # 其他致命错误（如文件损坏、权限问题）：提示后退出
-            error_msg = ErrorDialog(msg=f"初始化失败.系统错误：{str(e)}", button="退出")
+            error_msg = ErrorDialog(parent=login_dialog, msg=f"初始化失败.系统错误：{str(e)}", button="退出")
             error_msg.exec_()
             sys.exit(1)
 
