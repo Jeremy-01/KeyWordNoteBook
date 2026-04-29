@@ -55,6 +55,29 @@ from Core import KeyItem, PasswordNotebook
 logger = logging.getLogger(__name__)
 
 
+def _parse_clipboard_clear_ms(default_ms: int = 20000) -> int:
+    """解析剪贴板清理毫秒数环境变量，异常或越界时回退默认值。"""
+    raw_value = os.getenv("KEYWORD_NOTEBOOK_CLIPBOARD_CLEAR_MS", str(default_ms)).strip()
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "环境变量 KEYWORD_NOTEBOOK_CLIPBOARD_CLEAR_MS=%r 非法，使用默认值 %s",
+            raw_value,
+            default_ms,
+        )
+        return default_ms
+
+    if parsed <= 0:
+        logger.warning(
+            "环境变量 KEYWORD_NOTEBOOK_CLIPBOARD_CLEAR_MS=%s 需为正整数，使用默认值 %s",
+            parsed,
+            default_ms,
+        )
+        return default_ms
+    return parsed
+
+
 def _compute_lock_seconds(failed_attempts: int, threshold: int = 5, base: int = 30, max_seconds: int = 120) -> int:
     """根据失败次数计算指数退避冷却秒数。"""
     if failed_attempts < threshold:
@@ -494,7 +517,8 @@ class ItemEditDialog(QDialog):
         self.password_input.setPlaceholderText("密码")
         form.addRow("密码", self.password_input)
 
-        self.password_check = QLineEdit()
+        password_check_text = self.item_data.get("Password", "") if item_data else ""
+        self.password_check = QLineEdit(password_check_text)
         self.password_check.setEchoMode(QLineEdit.Password)
         self.password_check.setPlaceholderText("重复输入密码")
         form.addRow("重复密码", self.password_check)
@@ -559,7 +583,7 @@ class MainWindow(QMainWindow):
     VERIFY_FAIL_THRESHOLD = 5
     VERIFY_LOCK_BASE_SECONDS = 30
     VERIFY_LOCK_MAX_SECONDS = 120
-    CLIPBOARD_CLEAR_MS = int(os.getenv("KEYWORD_NOTEBOOK_CLIPBOARD_CLEAR_MS", "20000"))
+    CLIPBOARD_CLEAR_MS = _parse_clipboard_clear_ms()
     CLIPBOARD_FORCE_CLEAR = os.getenv("KEYWORD_NOTEBOOK_CLIPBOARD_FORCE_CLEAR", "0").strip().lower() in (
         "1",
         "true",
