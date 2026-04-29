@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
 """程序入口与应用级初始化。"""
-__version__ = "0.0.2.0"
+__version__ = "0.0.2.1"
 
 import sys
 import logging
