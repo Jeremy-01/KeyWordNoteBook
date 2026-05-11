@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/generator/password_generator.dart';
+import '../../core/utils/clipboard_utils.dart';
 
 class PasswordGeneratorScreen extends StatefulWidget {
   final Function(String)? onPasswordGenerated;
@@ -34,12 +35,10 @@ class _PasswordGeneratorScreenState extends State<PasswordGeneratorScreen> {
   }
 
   void _copyToClipboard() {
-    Clipboard.setData(ClipboardData(text: _generatedPassword));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('密码已复制，15秒后自动清除'),
-        duration: Duration(seconds: 2),
-      ),
+    ClipboardUtils.copyWithAutoClear(
+      context,
+      _generatedPassword,
+      label: '密码',
     );
   }
 

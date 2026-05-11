@@ -74,7 +74,7 @@
 
 - [x] **Task 3.1**: 增强搜索功能
   - 更新 `filteredItemsProvider` 支持模糊匹配
-  - 添加搜索历史记录功能
+  - ~~添加搜索历史记录功能~~ (P1 - 待实现)
 
 - [x] **Task 3.2**: 添加排序功能
   - 在 `keybook_provider.dart` 添加排序选项状态
@@ -175,10 +175,10 @@
   - 在检测到不安全环境时显示警告
   - 提供用户确认继续的选项
 
-- [x] **Task 7.3**: 实现截图防护
+- [x] **Task 7.3**: 实现截图防护（框架已实现，原生代码待实现）
   - 创建 `lib/core/security/screenshot_protection.dart`
-  - Android: FLAG_SECURE
-  - iOS: UITextField secureTextEntry 技巧
+  - Android: FLAG_SECURE（需原生代码实现）
+  - iOS: UITextField secureTextEntry 技巧（需原生代码实现）
 
 - [x] **Task 7.4**: 实现密钥轮换
   - 在 `change_password_screen.dart` 添加密钥重新派生

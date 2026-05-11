@@ -21,6 +21,7 @@ class ExportScreen extends ConsumerStatefulWidget {
 class _ExportScreenState extends ConsumerState<ExportScreen> {
   ExportFormat _selectedFormat = ExportFormat.csv;
   bool _isExporting = false;
+  String? _tempFilePath;
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +88,7 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
                     const Text(
                       '• 导出的数据包含所有密码条目\n'
                       '• 加密备份使用您的主密码加密\n'
-                      '• 请妥善保管导出的文件',
+                      '• 导出的文件仅在分享期间临时存储',
                       style: TextStyle(color: Colors.grey),
                     ),
                   ],
@@ -134,16 +135,20 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
         content = await exportService.exportToCsv(items);
         fileName = 'passwords_${DateTime.now().millisecondsSinceEpoch}.csv';
       } else {
-        content = 'encrypted_backup_${DateTime.now().millisecondsSinceEpoch}.json';
-        fileName = content;
-        content = '请在设置中输入主密码后导出加密备份';
+        final masterPassword = await _showPasswordDialog();
+        if (masterPassword == null || masterPassword.isEmpty) {
+          _showError('请输入主密码');
+          return;
+        }
+        final exportService = ref.read(exportServiceProvider);
+        content = await exportService.exportToEncryptedJson(items, masterPassword);
+        fileName = 'encrypted_backup_${DateTime.now().millisecondsSinceEpoch}.json';
       }
 
-      final directory = await getApplicationDocumentsDirectory();
+      final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/$fileName');
-      await file.writeAsString(
-        _selectedFormat == ExportFormat.csv ? content : '# Encrypted backup\n$content',
-      );
+      _tempFilePath = file.path;
+      await file.writeAsString(content);
 
       await Share.shareXFiles(
         [XFile(file.path)],
@@ -161,7 +166,48 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
       if (mounted) {
         setState(() => _isExporting = false);
       }
+      _cleanupTempFile();
     }
+  }
+
+  Future<void> _cleanupTempFile() async {
+    if (_tempFilePath != null) {
+      try {
+        final file = File(_tempFilePath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {}
+      _tempFilePath = null;
+    }
+  }
+
+  Future<String?> _showPasswordDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('输入主密码'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: '主密码',
+            hintText: '请输入用于加密的主密码',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showError(String message) {

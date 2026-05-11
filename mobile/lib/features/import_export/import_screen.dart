@@ -19,9 +19,11 @@ class ImportScreen extends ConsumerStatefulWidget {
 
 class _ImportScreenState extends ConsumerState<ImportScreen> {
   bool _isImporting = false;
+  bool _isPreviewing = false;
   List<dynamic>? _previewItems;
   String? _selectedFilePath;
   String? _errorMessage;
+  String? _selectedFileContent;
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +52,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                     const SizedBox(height: 8),
                     const Text(
                       '• 支持 CSV 格式导入\n'
-                      '• 支持加密备份导入\n'
+                      '• 加密备份导入（需输入密码）\n'
                       '• 请确保文件格式正确',
                       style: TextStyle(color: Colors.grey),
                     ),
@@ -122,7 +124,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
             ),
             const SizedBox(height: 12),
             ElevatedButton(
-              onPressed: (_selectedFilePath == null || _isImporting) ? null : _handleImport,
+              onPressed: (_previewItems == null || _isImporting || _isPreviewing) ? null : _handleImport,
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
@@ -154,6 +156,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
 
         setState(() {
           _selectedFilePath = filePath;
+          _selectedFileContent = content;
+          _previewItems = null;
           _errorMessage = null;
         });
 
@@ -171,6 +175,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   }
 
   Future<void> _previewCsv(String content) async {
+    setState(() => _isPreviewing = true);
     try {
       final importService = ref.read(importServiceProvider);
       final items = await importService.parseCsv(content);
@@ -186,22 +191,38 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       setState(() {
         _errorMessage = 'CSV 解析失败: $e';
       });
+    } finally {
+      setState(() => _isPreviewing = false);
     }
   }
 
   Future<void> _previewJson(String content) async {
+    setState(() => _isPreviewing = true);
     try {
       final importService = ref.read(importServiceProvider);
-      List<dynamic> items;
 
       if (content.contains('encrypted_keybook_backup')) {
-        setState(() {
-          _errorMessage = '加密备份需要在导入时输入密码';
-        });
+        final password = await _showPasswordDialog();
+        if (password == null || password.isEmpty) {
+          setState(() {
+            _errorMessage = '需要密码才能导入加密备份';
+          });
+          return;
+        }
+        try {
+          final items = await importService.parseEncryptedJson(content, password);
+          setState(() {
+            _previewItems = items;
+          });
+        } catch (e) {
+          setState(() {
+            _errorMessage = '密码错误或解密失败';
+          });
+        }
         return;
       }
 
-      items = await importService.parsePlainJson(content);
+      final items = await importService.parsePlainJson(content);
 
       setState(() {
         _previewItems = items;
@@ -210,7 +231,37 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       setState(() {
         _errorMessage = 'JSON 解析失败: $e';
       });
+    } finally {
+      setState(() => _isPreviewing = false);
     }
+  }
+
+  Future<String?> _showPasswordDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('输入密码'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: '主密码',
+            hintText: '请输入用于解密的主密码',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleImport() async {

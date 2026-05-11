@@ -1,6 +1,6 @@
 import 'dart:io';
 
-class SecurityDetection {
+class JailbreakDetection {
   static Future<bool> isDeviceCompromised() async {
     if (Platform.isAndroid) {
       return await _checkAndroidRoot();

@@ -80,8 +80,7 @@ class _ConflictDialogState extends State<ConflictDialog> {
         ),
         ElevatedButton(
           onPressed: () {
-            widget.onResolve(_selectedStrategy);
-            Navigator.of(context).pop();
+            Navigator.of(context).pop(_selectedStrategy);
           },
           child: const Text('确认'),
         ),

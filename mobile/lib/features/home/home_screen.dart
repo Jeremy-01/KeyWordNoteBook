@@ -18,13 +18,24 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
+  bool _showScrollToTop = false;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     Future.microtask(() {
       ref.read(keyBookProvider.notifier).loadItems(refresh: true);
     });
+  }
+
+  void _onScroll() {
+    final showButton = _scrollController.offset > 300;
+    if (showButton != _showScrollToTop) {
+      setState(() {
+        _showScrollToTop = showButton;
+      });
+    }
   }
 
   @override
@@ -170,15 +181,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const ItemEditScreen(),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedOpacity(
+            opacity: _showScrollToTop ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 200),
+            child: FloatingActionButton.small(
+              heroTag: 'scrollToTop',
+              onPressed: _showScrollToTop ? _scrollToTop : null,
+              child: const Icon(Icons.keyboard_arrow_up),
             ),
-          );
-        },
-        child: const Icon(Icons.add),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            heroTag: 'addItem',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const ItemEditScreen(),
+                ),
+              );
+            },
+            child: const Icon(Icons.add),
+          ),
+        ],
       ),
     );
   }

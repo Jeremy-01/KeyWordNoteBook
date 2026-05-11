@@ -56,36 +56,27 @@ class PasswordGenerator {
     }
 
     final chars = charPool.toString();
-    final password = StringBuffer();
+    final passwordChars = <String>[];
 
-    final requiredChars = <String>[];
     if (options.includeUppercase) {
-      requiredChars.add(_getSecureRandomChar(_uppercaseChars));
+      passwordChars.add(_getSecureRandomChar(_uppercaseChars));
     }
     if (options.includeLowercase) {
-      requiredChars.add(_getSecureRandomChar(_lowercaseChars));
+      passwordChars.add(_getSecureRandomChar(_lowercaseChars));
     }
     if (options.includeNumbers) {
-      requiredChars.add(_getSecureRandomChar(_numberChars));
+      passwordChars.add(_getSecureRandomChar(_numberChars));
     }
     if (options.includeSpecial) {
-      requiredChars.add(_getSecureRandomChar(_specialChars));
+      passwordChars.add(_getSecureRandomChar(_specialChars));
     }
 
-    final remainingLength = options.length - requiredChars.length;
+    final remainingLength = options.length - passwordChars.length;
     for (var i = 0; i < remainingLength; i++) {
-      password.write(_getSecureRandomChar(chars));
+      passwordChars.add(_getSecureRandomChar(chars));
     }
 
-    final passwordChars = password.toString().split('');
-    final requiredIndexList = List.generate(
-      passwordChars.length,
-      (i) => i,
-    )..shuffle(_secureRandom);
-
-    for (var i = 0; i < requiredChars.length && i < requiredIndexList.length; i++) {
-      passwordChars[requiredIndexList[i]] = requiredChars[i];
-    }
+    passwordChars.shuffle(_secureRandom);
 
     return passwordChars.join();
   }

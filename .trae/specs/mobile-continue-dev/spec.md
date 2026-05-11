@@ -239,7 +239,7 @@ dependencies:
   flutter_slidable: ^3.0.1
   share_plus: ^7.2.1
   file_picker: ^6.1.1
-  csv: ^5.1.1
+  csv: ^6.0.0
 ```
 
 ### 新增目录结构
@@ -252,13 +252,15 @@ lib/
 │   │   └── generator.dart
 │   └── security/           # 新增：安全相关
 │       ├── screenshot_protection.dart
-│       └── jailbreak_detection.dart
+│       ├── jailbreak_detection.dart
+│       ├── auto_lock_service.dart
+│       └── security_service.dart
 ├── features/
 │   ├── generator/          # 新增：密码生成器页面
 │   │   └── password_generator_screen.dart
 │   ├── group/              # 新增：分组管理
 │   │   ├── groups_screen.dart
-│   │   └── group_edit_screen.dart
+│   │   └── group_edit_dialog.dart
 │   └── import_export/      # 新增：导入导出
 │       ├── import_screen.dart
 │       └── export_screen.dart

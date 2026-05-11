@@ -174,9 +174,10 @@ class GroupsScreen extends ConsumerWidget {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () {
-              ref.read(groupsProvider.notifier).deleteGroup(group.id);
+            onPressed: () async {
               Navigator.of(context).pop();
+              await _migrateItemsToUngrouped(ref, group.id);
+              ref.read(groupsProvider.notifier).deleteGroup(group.id);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('删除'),
@@ -184,5 +185,17 @@ class GroupsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _migrateItemsToUngrouped(WidgetRef ref, String groupId) async {
+    final keyBookNotifier = ref.read(keyBookProvider.notifier);
+    final items = ref.read(keyBookProvider).items;
+
+    for (final item in items) {
+      if (item.groupId == groupId) {
+        final updatedItem = item.copyWith(groupId: null);
+        await keyBookNotifier.updateItem(item.index, updatedItem);
+      }
+    }
   }
 }

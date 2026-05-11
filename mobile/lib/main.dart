@@ -2,12 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'core/security/security_service.dart';
 
-/// 应用入口函数
-void main() {
-  // 确保 Flutter 绑定已初始化
+Future<void> _checkSecurity() async {
+  final securityService = SecurityService.instance;
+  final isCompromised = await securityService.checkDeviceSecurity();
+  if (isCompromised) {
+    debugPrint('Security warning: Device is compromised');
+  }
+}
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 启动应用，使用 ProviderScope 包裹以支持 Riverpod 状态管理
+
+  await _checkSecurity();
+
   runApp(
     const ProviderScope(
       child: KeyBookApp(),

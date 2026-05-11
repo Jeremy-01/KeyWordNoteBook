@@ -48,34 +48,34 @@ class ImportService {
   }
 
   KeyItemModel _parseRowToItem(List<String> headers, List<dynamic> row) {
-    String getValue(String header, int index) {
+    String getValue(String header) {
       final headerIndex = headers.indexOf(header.toLowerCase());
-      if (headerIndex != -1 && index < row.length) {
+      if (headerIndex != -1 && headerIndex < row.length) {
         return row[headerIndex]?.toString() ?? '';
       }
       return '';
     }
 
-    int getIntValue(String header, int index, {int defaultValue = 0}) {
-      final value = getValue(header, index);
+    int getIntValue(String header, {int defaultValue = 0}) {
+      final value = getValue(header);
       return int.tryParse(value) ?? defaultValue;
     }
 
-    bool getBoolValue(String header, int index) {
-      final value = getValue(header, index).toLowerCase();
+    bool getBoolValue(String header) {
+      final value = getValue(header).toLowerCase();
       return value == 'true' || value == '1';
     }
 
     return KeyItemModel(
       index: '',
-      url: getValue('url', 0),
-      username: getValue('username', 1),
-      password: getValue('password', 2).isEmpty ? null : getValue('password', 2),
-      passwordLevel: getIntValue('passwordlevel', 5),
-      linkUrl: getValue('linkurl', 3),
-      note: getValue('note', 4),
-      isFavorite: getBoolValue('isfavorite', 6),
-      groupId: getValue('groupid', 7).isEmpty ? null : getValue('groupid', 7),
+      url: getValue('url'),
+      username: getValue('username'),
+      password: getValue('password').isEmpty ? null : getValue('password'),
+      passwordLevel: getIntValue('passwordlevel'),
+      linkUrl: getValue('linkurl'),
+      note: getValue('note'),
+      isFavorite: getBoolValue('isfavorite'),
+      groupId: getValue('groupid').isEmpty ? null : getValue('groupid'),
     );
   }
 
